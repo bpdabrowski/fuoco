@@ -45,7 +45,6 @@ public final class FirestoreService: FirestoreServiceProtocol {
         }
         switch endpoint.method {
         case .get:
-            throw FirestoreServiceError.invalidPath
             let querySnapshot = try await ref.getDocuments()
             var response: [T] = []
             for document in querySnapshot.documents {
