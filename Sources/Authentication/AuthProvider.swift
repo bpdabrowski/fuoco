@@ -12,7 +12,7 @@ public protocol AuthProvider {
     associatedtype AuthData
     associatedtype Result
     func signIn(with data: AuthData) -> String?
-    func response(_ result: Result, nonce: String?)
+    func response(_ result: Result, nonce: String?) async throws(AuthError)
 }
 
 extension AuthProvider {
