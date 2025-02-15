@@ -12,11 +12,19 @@ let package = Package(
             name: "Networking",
             targets: ["Networking"]
         ),
+        .library(
+            name: "Authentication",
+            targets: ["Authentication"]
+        ),
     ],
     dependencies: [
         .package(
             url: "https://github.com/firebase/firebase-ios-sdk.git",
             from: "11.6.0"
+        ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-dependencies.git",
+            from: "1.7.0"
         )
     ],
     targets: [
@@ -26,7 +34,15 @@ let package = Package(
             name: "Networking",
             dependencies: [
               .product(name: "FirebaseDatabase", package: "firebase-ios-sdk"),
-              .product(name: "FirebaseFirestore", package: "firebase-ios-sdk")
+              .product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
+              .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
+            ]
+        ),
+        .target(
+            name: "Authentication",
+            dependencies: [
+              .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
+              .product(name: "Dependencies", package: "swift-dependencies")
             ]
         ),
     ]
