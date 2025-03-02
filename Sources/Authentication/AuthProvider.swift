@@ -7,12 +7,13 @@
 
 import CryptoKit
 import Foundation
+import FirebaseAuth
 
 public protocol AuthProvider {
     associatedtype AuthData
     associatedtype Result
     func signIn(with data: AuthData) -> String?
-    func response(_ result: Result, nonce: String?) async throws(AuthError)
+    func response(_ result: Result, nonce: String?) async throws(AuthError) -> AuthDataResult
 }
 
 extension AuthProvider {
