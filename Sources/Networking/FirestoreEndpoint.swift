@@ -22,6 +22,6 @@ public extension FirestoreEndpoint {
 public enum FirestoreMethod {
     case get
     case post(any FirestoreIdentifiable)
-    case put(any FirestoreIdentifiable)
+    case put([String: Any])
     case delete
 }
