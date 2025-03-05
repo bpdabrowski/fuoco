@@ -17,9 +17,9 @@ public struct SignInWithApple: AuthProvider, Sendable {
         return data.nonce
     }
     
-    public func response(_ result: ASAuthorization, nonce: String?) async throws(AuthError) {
+    public func response(_ result: ASAuthorization, nonce: String?) async throws(AuthError) -> AuthDataResult {
         do {
-            try await handleSuccessfulLogin(with: result, nonce: nonce)
+            return try await handleSuccessfulLogin(with: result, nonce: nonce)
         } catch {
             throw .unableToSignIn
         }
@@ -47,9 +47,42 @@ public struct SignInWithApple: AuthProvider, Sendable {
         )
          
         do {
+            // The onCreate function doesn't work in firebase functions so it looks like we have to manually add the
+            // users name to the database.
             return try await Auth.auth().signIn(with: credential)
         } catch {
             throw .unableToSignIn
+        }
+    }
+    
+    public func isSignedIn() async -> Bool {
+        return await credentials() == .authorized
+    }
+    
+    public func credentials() async -> ASAuthorizationAppleIDProvider.CredentialState {
+        let appleIDProvider = ASAuthorizationAppleIDProvider()
+        let providerData = Auth.auth().currentUser?.providerData
+        
+        guard let appleProviderData = providerData?.first(where: { $0.providerID == "apple.com" }) else {
+            return .notFound
+        }
+        
+        do {
+            return try await appleIDProvider.credentialState(forUserID: appleProviderData.uid)
+        } catch {
+            return .notFound
+        }
+    }
+    
+    public func verifySignInWithAppleID() async {
+        switch await credentials() {
+        case .authorized:
+            break
+        case .revoked, .notFound:
+            try? await Auth.auth().signOut()
+            // TODO: Token revocation https://firebase.google.com/docs/auth/ios/apple#token_revocation
+        default:
+            break
         }
     }
 }

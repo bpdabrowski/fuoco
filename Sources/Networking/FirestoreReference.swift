@@ -19,9 +19,9 @@ public protocol FirestoreIdentifiable: Codable, Identifiable {
 
 public typealias Dictionary = [String: Any]
 
-extension Encodable {
+public extension Encodable {
 
-    func asDictionary() -> Dictionary {
+    public func asDictionary() -> Dictionary {
         guard let data = try? JSONEncoder().encode(self) else {
             return [:]
         }

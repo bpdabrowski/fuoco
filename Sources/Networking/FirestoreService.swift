@@ -67,8 +67,8 @@ public final class FirestoreService: FirestoreServiceProtocol {
         case .post(var model):
             model.id = ref.documentID
             try await ref.setData(model.asDictionary())
-        case .put(let model):
-            try await ref.setData(model.asDictionary())
+        case .put(let dict):
+            try await ref.updateData(dict)
             break
         case .delete:
             try await ref.delete()
