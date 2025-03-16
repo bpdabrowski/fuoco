@@ -14,7 +14,7 @@ public struct SignInWithApple: AuthProvider, Sendable {
         let nonce = randomNonceString()
         data.requestedScopes = [.fullName, .email]
         data.nonce = sha256(nonce)
-        return data.nonce
+        return nonce
     }
     
     public func response(_ result: ASAuthorization, nonce: String?) async throws(AuthError) -> AuthDataResult {
