@@ -16,6 +16,10 @@ let package = Package(
             name: "Authentication",
             targets: ["Authentication"]
         ),
+        .library(
+            name: "Storage",
+            targets: ["Storage"]
+        ),
     ],
     dependencies: [
         .package(
@@ -42,6 +46,13 @@ let package = Package(
             name: "Authentication",
             dependencies: [
               .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
+              .product(name: "Dependencies", package: "swift-dependencies"),
+            ]
+        ),
+        .target(
+            name: "Storage",
+            dependencies: [
+              .product(name: "FirebaseStorage", package: "firebase-ios-sdk"),
               .product(name: "Dependencies", package: "swift-dependencies"),
             ]
         ),
