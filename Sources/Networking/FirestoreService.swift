@@ -5,17 +5,46 @@
 //  Created by Brendyn Dabrowski on 12/27/24.
 //
 
-import Firebase
+@preconcurrency import Firebase
 
 public protocol FirestoreServiceProtocol {
     static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable
     static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable
     static func request(_ endpoint: FirestoreEndpoint) async throws -> Void
+    static func listener<T>(_ endpoint: FirestoreEndpoint) -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
 }
 
 public final class FirestoreService: FirestoreServiceProtocol {
 
     private init() {}
+    
+    public static func listener<T>(_ endpoint: any FirestoreEndpoint) -> AsyncThrowingStream<[T], any Error> where T : FirestoreIdentifiable {
+        AsyncThrowingStream { continuation in
+            guard let ref = endpoint.path as? Query else {
+                continuation.finish(throwing: FirestoreServiceError.documentNotFound)
+                return
+            }
+            
+            let listener = ref.addSnapshotListener { querySnapshot, error in
+                if let error {
+                    continuation.finish(throwing: error)
+                } else{
+                    continuation.yield(querySnapshot?.documents
+                        .compactMap {
+                            do {
+                                return try $0.data(as: T.self)
+                            } catch {
+                                return nil
+                            }
+                        } ?? [])
+                }
+            }
+            
+            continuation.onTermination = { _ in
+                listener.remove()
+            }
+        }
+    }
 
     public static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable {
         guard let ref = endpoint.path as? DocumentReference else {
