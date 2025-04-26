@@ -10,25 +10,32 @@ import Dependencies
 
 public protocol FirestoreServiceProtocol {
     static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable
-    static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable
+    static func request<T>(_ endpoint: FirestoreEndpoint, lastQuerySnapshot: @escaping (QuerySnapshot) -> Void) async throws -> [T] where T: FirestoreIdentifiable
     static func request(_ endpoint: FirestoreEndpoint) async throws -> Void
     static func listener<T>(_ endpoint: FirestoreEndpoint) -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
 }
 
-public protocol FirestoreServiceActorProtocol {
-    func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable
-    func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable
-    func request(_ endpoint: FirestoreEndpoint) async throws -> Void
-    func listener<T>(_ endpoint: FirestoreEndpoint, pageSize: Int) async -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
+public extension FirestoreServiceProtocol {
+    func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable {
+        try await Self.request(endpoint, lastQuerySnapshot: { _ in })
+    }
 }
 
-extension FirestoreServiceActorProtocol {
-    func listener<T>(_ endpoint: FirestoreEndpoint) async -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable {
-        await self.listener(endpoint, pageSize: Int.max)
+public protocol FirestoreServiceActorProtocol {
+    func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable
+    func request<T>(_ endpoint: FirestoreEndpoint, pageSize: Int) async throws -> [T] where T: FirestoreIdentifiable
+    func request(_ endpoint: FirestoreEndpoint) async throws -> Void
+    func listener<T>(_ endpoint: FirestoreEndpoint/*, pageSize: Int*/) async -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
+}
+
+public extension FirestoreServiceActorProtocol {
+    func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable {
+        try await self.request(endpoint, pageSize: Int.max)
     }
 }
 
 public actor NewFirestoreService: FirestoreServiceActorProtocol {
+    
     var cursor: DocumentSnapshot?
     
     public nonisolated func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable {
@@ -53,18 +60,52 @@ public actor NewFirestoreService: FirestoreServiceActorProtocol {
 
     }
 
-    public nonisolated func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable {
-        guard let ref = endpoint.path as? Query else {
+    public func request<T: Sendable>(
+        _ endpoint: any FirestoreEndpoint,
+        pageSize: Int
+    ) async throws -> [T] where T : FirestoreIdentifiable {
+        guard var ref = endpoint.path as? Query else {
             throw FirestoreServiceError.collectionNotFound
         }
+        
         switch endpoint.method {
         case .get:
+//            if let cursor = self.cursor {
+//                ref = ref.start(afterDocument: cursor)
+//            }
+//            
             let querySnapshot = try await ref.getDocuments()
+//            
+//            guard !querySnapshot.isEmpty else {
+//                // There are no results and so there can be no more results to paginate; nil the cursor.
+//                self.cursor = nil
+//                return []
+//            }
+//            
+//            // Before parsing the snapshot, manage the cursor.
+//            if querySnapshot.count < pageSize {
+//                // This snapshot is smaller than a page size and so there can be no more results to paginate; nil the cursor.
+//                self.cursor = nil
+//                print("Hi BD! We are inside of niling the cursor")
+//            }
+//            else {
+//                // This snapshot is a full page size and so there could potentially be more results to paginate; set the cursor.
+//                self.cursor = querySnapshot.documents.last
+//                print("Hi BD! We are inside of setting the cursor to the last document.")
+//            }
+            
+            
             var response: [T] = []
             for document in querySnapshot.documents {
                 let data = try FirestoreParser.parse(document.data(), type: T.self)
                 response.append(data)
+                if document === querySnapshot.documents.last {
+                    print("Hi BD! This is the current cursor value: \(response.last?.id)")
+                }
             }
+//            self.cursor = querySnapshot.documents.last
+//            print("Hi BD! Response has been fetched and cursor is now set to \(response.last?.id)")
+            
             return response
         case .post, .put, .delete:
             throw FirestoreServiceError.operationNotSupported
@@ -89,42 +130,39 @@ public actor NewFirestoreService: FirestoreServiceActorProtocol {
         }
     }
     
-    public func listener<T: Sendable>(
-        _ endpoint: any FirestoreEndpoint,
-        pageSize: Int = Int.max
-    ) async -> AsyncThrowingStream<[T], any Error> where T : FirestoreIdentifiable {
+    public nonisolated func listener<T>(_ endpoint: any FirestoreEndpoint) async -> AsyncThrowingStream<[T], any Error> where T : FirestoreIdentifiable {
         AsyncThrowingStream { continuation in
             guard var ref = endpoint.path as? Query else {
                 continuation.finish(throwing: FirestoreServiceError.documentNotFound)
                 return
             }
             
-            if let cursor = self.cursor {
-                ref = ref.start(afterDocument: cursor)
-            }
+//            if let cursor = self.cursor {
+//                ref = ref.start(afterDocument: cursor)
+//            }
             
             let listener = ref.addSnapshotListener { querySnapshot, error in
-                guard let snapshot = querySnapshot else {
-                    if let error = error {
-                        print(error)
-                    }
-                    return
-                }
-                
-                guard !snapshot.isEmpty else {
-                    // There are no results and so there can be no more results to paginate; nil the cursor.
-                    self.cursor = nil
-                    return
-                }
-                
-                // Before parsing the snapshot, manage the cursor.
-                if snapshot.count < pageSize {
-                    // This snapshot is smaller than a page size and so there can be no more results to paginate; nil the cursor.
-                    self.cursor = nil
-                } else {
-                    // This snapshot is a full page size and so there could potentially be more results to paginate; set the cursor.
-                    self.cursor = snapshot.documents.last
-                }
+//                guard let querySnapshot else {
+//                    if let error = error {
+//                        print(error)
+//                    }
+//                    return
+//                }
+//                
+//                guard !querySnapshot.isEmpty else {
+//                    // There are no results and so there can be no more results to paginate; nil the cursor.
+//                    self.cursor = nil
+//                    return
+//                }
+//                
+//                // Before parsing the snapshot, manage the cursor.
+//                if querySnapshot.count < pageSize {
+//                    // This snapshot is smaller than a page size and so there can be no more results to paginate; nil the cursor.
+//                    self.cursor = nil
+//                } else {
+//                    // This snapshot is a full page size and so there could potentially be more results to paginate; set the cursor.
+//                    self.cursor = querySnapshot.documents.last
+//                }
                 
                 if let error {
                     continuation.finish(throwing: error)
@@ -201,7 +239,7 @@ public final class FirestoreService: FirestoreServiceProtocol {
 
     }
 
-    public static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable {
+    public static func request<T>(_ endpoint: FirestoreEndpoint, lastQuerySnapshot: @escaping (QuerySnapshot) -> Void = { _ in }) async throws -> [T] where T: FirestoreIdentifiable {
         guard let ref = endpoint.path as? Query else {
             throw FirestoreServiceError.collectionNotFound
         }
@@ -213,6 +251,7 @@ public final class FirestoreService: FirestoreServiceProtocol {
                 let data = try FirestoreParser.parse(document.data(), type: T.self)
                 response.append(data)
             }
+            lastQuerySnapshot(querySnapshot)
             return response
         case .post, .put, .delete:
             throw FirestoreServiceError.operationNotSupported
