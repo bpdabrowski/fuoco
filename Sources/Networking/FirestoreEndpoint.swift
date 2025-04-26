@@ -7,7 +7,7 @@
 
 import FirebaseFirestore
 
-public protocol FirestoreEndpoint {
+public protocol FirestoreEndpoint: Sendable {
     var path: FirestoreReference { get }
     var method: FirestoreMethod { get }
     var firestore: Firestore { get }

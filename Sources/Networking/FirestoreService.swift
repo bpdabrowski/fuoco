@@ -6,19 +6,26 @@
 //
 
 @preconcurrency import Firebase
+import Dependencies
 
 public protocol FirestoreServiceProtocol {
-    static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable
-    static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable
-    static func request(_ endpoint: FirestoreEndpoint) async throws -> Void
-    static func listener<T>(_ endpoint: FirestoreEndpoint) -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
+    func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable
+    func request<T>(_ endpoint: FirestoreEndpoint, lastQuerySnapshot: @escaping (QuerySnapshot) -> Void) async throws -> [T] where T: FirestoreIdentifiable
+    func request(_ endpoint: FirestoreEndpoint) async throws -> Void
+    func listener<T>(_ endpoint: FirestoreEndpoint) -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
 }
 
-public final class FirestoreService: FirestoreServiceProtocol {
+public extension FirestoreServiceProtocol {
+    func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable {
+        try await self.request(endpoint, lastQuerySnapshot: { _ in })
+    }
+}
+
+public final class FirestoreService: FirestoreServiceProtocol, Sendable {
 
     private init() {}
     
-    public static func listener<T>(_ endpoint: any FirestoreEndpoint) -> AsyncThrowingStream<[T], any Error> where T : FirestoreIdentifiable {
+    public func listener<T>(_ endpoint: any FirestoreEndpoint) -> AsyncThrowingStream<[T], any Error> where T : FirestoreIdentifiable {
         AsyncThrowingStream { continuation in
             guard let ref = endpoint.path as? Query else {
                 continuation.finish(throwing: FirestoreServiceError.documentNotFound)
@@ -46,7 +53,7 @@ public final class FirestoreService: FirestoreServiceProtocol {
         }
     }
 
-    public static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable {
+    public func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable {
         guard let ref = endpoint.path as? DocumentReference else {
             throw FirestoreServiceError.documentNotFound
         }
@@ -68,7 +75,7 @@ public final class FirestoreService: FirestoreServiceProtocol {
 
     }
 
-    public static func request<T>(_ endpoint: FirestoreEndpoint) async throws -> [T] where T: FirestoreIdentifiable {
+    public func request<T>(_ endpoint: FirestoreEndpoint, lastQuerySnapshot: @escaping (QuerySnapshot) -> Void = { _ in }) async throws -> [T] where T: FirestoreIdentifiable {
         guard let ref = endpoint.path as? Query else {
             throw FirestoreServiceError.collectionNotFound
         }
@@ -80,13 +87,14 @@ public final class FirestoreService: FirestoreServiceProtocol {
                 let data = try FirestoreParser.parse(document.data(), type: T.self)
                 response.append(data)
             }
+            lastQuerySnapshot(querySnapshot)
             return response
         case .post, .put, .delete:
             throw FirestoreServiceError.operationNotSupported
         }
     }
 
-    public static func request(_ endpoint: FirestoreEndpoint) async throws -> Void {
+    public func request(_ endpoint: FirestoreEndpoint) async throws -> Void {
         guard let ref = endpoint.path as? DocumentReference else {
             throw FirestoreServiceError.documentNotFound
         }
@@ -112,4 +120,18 @@ public enum FirestoreServiceError: Error {
     case invalidRequest
     case collectionNotFound
     case operationNotSupported
+}
+
+
+extension FirestoreService: DependencyKey {
+    public static var liveValue: FirestoreService {
+        return FirestoreService()
+    }
+}
+
+extension DependencyValues: Sendable {
+    public var firestoreService: FirestoreService {
+        get { self[FirestoreService.self] }
+        set { self[FirestoreService.self] = newValue }
+    }
 }
