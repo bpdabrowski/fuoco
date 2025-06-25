@@ -20,6 +20,10 @@ let package = Package(
             name: "Storage",
             targets: ["Storage"]
         ),
+        .library(
+            name: "RemoteNotifications",
+            targets: ["RemoteNotifications"]
+        ),
     ],
     dependencies: [
         .package(
@@ -56,5 +60,12 @@ let package = Package(
               .product(name: "Dependencies", package: "swift-dependencies"),
             ]
         ),
+        .target(
+            name: "RemoteNotifications",
+            dependencies: [
+              .product(name: "FirebaseMessaging", package: "firebase-ios-sdk"),
+              .product(name: "Dependencies", package: "swift-dependencies"),
+            ]
+        )
     ]
 )
