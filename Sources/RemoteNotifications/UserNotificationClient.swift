@@ -18,6 +18,7 @@ public struct UserNotificationClient {
     }
     public var scheduleLocalNotification: @Sendable (UNNotificationRequest) async throws -> Void
     public var unscheduleLocalNotification: @Sendable (String?) -> Void
+    public var allScheduledLocalNotifications: @Sendable () async -> [String]
     
     public enum DelegateEvent: Sendable {
         case didReceiveResponse(Notification.Response)
@@ -78,7 +79,9 @@ extension UserNotificationClient: DependencyKey, Sendable {
             try await UNUserNotificationCenter.current().add(request)
         }, unscheduleLocalNotification: { id in
             guard let id else { return }
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
+        }, allScheduledLocalNotifications: {
+            await UNUserNotificationCenter.current().pendingNotificationRequests().map(\.identifier)
         })
     
     public static let testValue = Self {
@@ -88,6 +91,8 @@ extension UserNotificationClient: DependencyKey, Sendable {
     } scheduleLocalNotification: { _ in
         fatalError()
     } unscheduleLocalNotification: { _ in
+        fatalError()
+    } allScheduledLocalNotifications: {
         fatalError()
     }
 }
@@ -128,7 +133,6 @@ extension UserNotificationClient {
         }
         
         func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-            NSLog("Hi BD! We are yielding didReceiveResponse in the UserNotificationClient#Delegate.")
             self.continuation.yield(.didReceiveResponse(.init(rawValue: response)))
         }
         
