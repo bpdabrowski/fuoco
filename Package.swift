@@ -50,6 +50,7 @@ let package = Package(
             name: "Authentication",
             dependencies: [
               .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
+              .product(name: "FirebaseAppCheck", package: "firebase-ios-sdk"),
               .product(name: "Dependencies", package: "swift-dependencies"),
             ]
         ),
