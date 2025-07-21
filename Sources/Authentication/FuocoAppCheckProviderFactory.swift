@@ -19,6 +19,4 @@ public class FuocoAppCheckProviderFactory: NSObject, AppCheckProviderFactory {
         
         return providerFactory
     }
-    
-//    public init() { }
 }
