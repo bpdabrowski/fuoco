@@ -14,11 +14,12 @@ public struct UserNotificationClient {
     public let delegate: @Sendable () -> AsyncStream<DelegateEvent>
     public var requestAuthorization: @Sendable (UNAuthorizationOptions) async throws -> Bool
     public var getNotificationSettings: @Sendable () async -> Notification.Settings = {
-      Notification.Settings(authorizationStatus: .notDetermined)
+        Notification.Settings(authorizationStatus: .notDetermined, badgeSetting: .notSupported)
     }
     public var scheduleLocalNotification: @Sendable (UNNotificationRequest) async throws -> Void
     public var unscheduleLocalNotification: @Sendable (String?) -> Void
     public var allScheduledLocalNotifications: @Sendable () async -> [String]
+    public var resetBadgeCount: @Sendable () -> Void
     
     public enum DelegateEvent: Sendable {
         case didReceiveResponse(Notification.Response)
@@ -48,9 +49,11 @@ public struct UserNotificationClient {
         
         public struct Settings: Equatable, Sendable {
             public let authorizationStatus: UNAuthorizationStatus
+            public let badgeSetting: UNNotificationSetting
             
-            public init(authorizationStatus: UNAuthorizationStatus) {
+            public init(authorizationStatus: UNAuthorizationStatus, badgeSetting: UNNotificationSetting) {
                 self.authorizationStatus = authorizationStatus
+                self.badgeSetting = badgeSetting
             }
         }
     }
@@ -82,6 +85,8 @@ extension UserNotificationClient: DependencyKey, Sendable {
             UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
         }, allScheduledLocalNotifications: {
             await UNUserNotificationCenter.current().pendingNotificationRequests().map(\.identifier)
+        }, resetBadgeCount: {
+            UNUserNotificationCenter.current().setBadgeCount(0)
         })
     
     public static let testValue = Self {
@@ -93,6 +98,8 @@ extension UserNotificationClient: DependencyKey, Sendable {
     } unscheduleLocalNotification: { _ in
         fatalError()
     } allScheduledLocalNotifications: {
+        fatalError()
+    } resetBadgeCount: {
         fatalError()
     }
 }
@@ -120,6 +127,7 @@ extension UserNotificationClient.Notification.Response {
 extension UserNotificationClient.Notification.Settings {
     public init(rawValue: UNNotificationSettings) {
         self.authorizationStatus = rawValue.authorizationStatus
+        self.badgeSetting = rawValue.badgeSetting
     }
 }
 

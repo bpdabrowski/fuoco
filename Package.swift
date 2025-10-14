@@ -32,7 +32,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/pointfreeco/swift-dependencies.git",
-            from: "1.7.0"
+            from: "1.10.0"
         )
     ],
     targets: [
@@ -44,6 +44,7 @@ let package = Package(
               .product(name: "FirebaseDatabase", package: "firebase-ios-sdk"),
               .product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
               .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
+              .product(name: "Dependencies", package: "swift-dependencies"),
             ]
         ),
         .target(
