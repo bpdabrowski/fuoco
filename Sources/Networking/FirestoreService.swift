@@ -12,7 +12,7 @@ public protocol FirestoreServiceProtocol {
     func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable
     func request<T>(_ endpoint: FirestoreEndpoint, lastQuerySnapshot: @escaping (QuerySnapshot) -> Void) async throws -> [T] where T: FirestoreIdentifiable
     func request(_ endpoint: FirestoreEndpoint) async throws -> Void
-    func listener<T>(_ endpoint: FirestoreEndpoint) -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
+    func listener<T>(_ endpoint: FirestoreEndpoint, changeType: [DocumentChangeType]) -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
 }
 
 public extension FirestoreServiceProtocol {
@@ -25,7 +25,7 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
 
     private init() {}
     
-    public func listener<T>(_ endpoint: any FirestoreEndpoint) -> AsyncThrowingStream<[T], any Error> where T : FirestoreIdentifiable {
+    public func listener<T>(_ endpoint: any FirestoreEndpoint, changeType: [DocumentChangeType]) -> AsyncThrowingStream<[T], any Error> where T : FirestoreIdentifiable {
         AsyncThrowingStream { continuation in
             guard let ref = endpoint.path as? Query else {
                 continuation.finish(throwing: FirestoreServiceError.documentNotFound)
@@ -35,15 +35,22 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
             let listener = ref.addSnapshotListener { querySnapshot, error in
                 if let error {
                     continuation.finish(throwing: error)
-                } else{
-                    continuation.yield(querySnapshot?.documents
-                        .compactMap {
+                } else {
+                    let documents = querySnapshot?.documentChanges
+                        .filter { changeType.contains($0.type) }
+                        .compactMap { change -> T? in
                             do {
-                                return try $0.data(as: T.self)
+                                let data = try FirestoreParser.parse(
+                                    change.document.data(),
+                                    type: T.self
+                                )
+                                return data
                             } catch {
                                 return nil
                             }
-                        } ?? [])
+                        } ?? []
+                    
+                        continuation.yield(documents)
                 }
             }
             
@@ -105,6 +112,8 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
             model.id = ref.documentID
             try await ref.setData(model.asDictionary())
         case .put(let dict):
+            // Temporary delay to debounce firestore updates.
+            try await Task.sleep(for: .milliseconds(750))
             try await ref.updateData(dict)
             break
         case .delete:
