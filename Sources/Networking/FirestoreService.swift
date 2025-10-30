@@ -13,6 +13,7 @@ public protocol FirestoreServiceProtocol {
     func request<T>(_ endpoint: FirestoreEndpoint, lastQuerySnapshot: @escaping (QuerySnapshot) -> Void) async throws -> [T] where T: FirestoreIdentifiable
     func request(_ endpoint: FirestoreEndpoint) async throws -> Void
     func listener<T>(_ endpoint: FirestoreEndpoint, changeType: [DocumentChangeType]) -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
+    func listener<T>(_ endpoint: FirestoreEndpoint) -> AsyncThrowingStream<T, Error> where T: FirestoreIdentifiable & Sendable
 }
 
 public extension FirestoreServiceProtocol {
@@ -31,6 +32,8 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
                 continuation.finish(throwing: FirestoreServiceError.documentNotFound)
                 return
             }
+            
+            print("🟢 [FirestoreService] Array listener started for path: \(ref)")
             
             let listener = ref.addSnapshotListener { querySnapshot, error in
                 if let error {
@@ -54,7 +57,39 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
                 }
             }
             
-            continuation.onTermination = { _ in
+            continuation.onTermination = { @Sendable _ in
+                print("🔴 [FirestoreService] Array listener terminated/deallocated for path: \(ref)")
+                listener.remove()
+            }
+        }
+    }
+
+    public func listener<T>(_ endpoint: any FirestoreEndpoint) -> AsyncThrowingStream<T, any Error> where T : FirestoreIdentifiable & Sendable {
+        AsyncThrowingStream { continuation in
+            guard let ref = endpoint.path as? DocumentReference else {
+                continuation.finish(throwing: FirestoreServiceError.documentNotFound)
+                return
+            }
+            
+            print("🟢 [FirestoreService] Single listener started for path: \(ref)")
+            
+            let listener = ref.addSnapshotListener { documentSnapshot, error in
+                if let error {
+                    continuation.finish(throwing: error)
+                } else if let documentData = documentSnapshot?.data() {
+                    let parsedData: T
+                    do {
+                        parsedData = try FirestoreParser.parse(documentData, type: T.self)
+                    } catch {
+                        continuation.finish(throwing: error)
+                        return
+                    }
+                    continuation.yield(parsedData)
+                }
+            }
+            
+            continuation.onTermination = { @Sendable _ in
+                print("🔴 [FirestoreService] Single listener terminated/deallocated for path: \(ref)")
                 listener.remove()
             }
         }
