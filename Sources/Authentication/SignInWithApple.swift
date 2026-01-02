@@ -47,8 +47,9 @@ public struct SignInWithApple: AuthProvider, Sendable {
         )
          
         do {
-            // The onCreate function doesn't work in firebase functions so it looks like we have to manually add the
-            // users name to the database.
+            // Firebase automatically recognizes the existing user by their Apple User ID.
+            // If the user has previously signed in with this Apple ID, they will be signed into
+            // the same account. Note: Apple only provides fullName and email on first authorization.
             return try await Auth.auth().signIn(with: credential)
         } catch {
             throw .unableToSignIn
