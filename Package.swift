@@ -28,6 +28,10 @@ let package = Package(
             name: "Analytics",
             targets: ["Analytics"]
         ),
+        .library(
+            name: "RemoteConfig",
+            targets: ["RemoteConfig"]
+        ),
     ],
     dependencies: [
         .package(
@@ -77,6 +81,13 @@ let package = Package(
             name: "Analytics",
             dependencies: [
               .product(name: "FirebaseAnalytics", package: "firebase-ios-sdk"),
+              .product(name: "Dependencies", package: "swift-dependencies"),
+            ]
+        ),
+        .target(
+            name: "RemoteConfig",
+            dependencies: [
+              .product(name: "FirebaseRemoteConfig", package: "firebase-ios-sdk"),
               .product(name: "Dependencies", package: "swift-dependencies"),
             ]
         )
