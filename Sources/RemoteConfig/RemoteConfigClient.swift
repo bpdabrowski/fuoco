@@ -6,7 +6,7 @@
 //
 
 import Dependencies
-import FirebaseRemoteConfig
+@preconcurrency import FirebaseRemoteConfig
 import Foundation
 
 /// A client for interacting with Firebase Remote Config
@@ -14,26 +14,9 @@ public struct RemoteConfigClient: Sendable {
     /// Fetch and activate remote config values
     public var fetchAndActivate: @Sendable () async throws -> Bool
     
-    /// Get a string value for a given key
-    public var getString: @Sendable (String) -> String
-    
-    /// Get a boolean value for a given key
-    public var getBool: @Sendable (String) -> Bool
-    
-    /// Get a number value for a given key
-    public var getNumber: @Sendable (String) -> NSNumber
-    
-    /// Get a data value for a given key
-    public var getData: @Sendable (String) -> Data
-    
-    /// Get a decoded value for a given key
-    public var getDecoded: @Sendable <T: Decodable>(String, T.Type) throws -> T
-    
-    /// Start listening for real-time config updates
-    public var startListeningForUpdates: @Sendable (@Sendable ([String]) async -> Void) -> Void
-    
-    /// Stop listening for real-time config updates
-    public var stopListeningForUpdates: @Sendable () -> Void
+    /// Start listening for real-time config updates as an AsyncStream
+    /// Returns an AsyncStream that emits arrays of updated config keys
+    public var configUpdates: @Sendable () -> AsyncStream<[String]>
     
     /// Set default values from a plist file
     public var setDefaultsFromPlist: @Sendable (String) -> Void
@@ -84,54 +67,38 @@ extension RemoteConfigClient: DependencyKey {
                     }
                 }
             },
-            getString: { key in
-                remoteConfig[key].stringValue ?? ""
-            },
-            getBool: { key in
-                remoteConfig[key].boolValue
-            },
-            getNumber: { key in
-                remoteConfig[key].numberValue
-            },
-            getData: { key in
-                remoteConfig[key].dataValue
-            },
-            getDecoded: { key, type in
-                let value = remoteConfig[key]
-                let data = value.dataValue
-                let decoder = JSONDecoder()
-                return try decoder.decode(type, from: data)
-            },
-            startListeningForUpdates: { onUpdate in
-                let listener = remoteConfig.addOnConfigUpdateListener { configUpdate, error in
-                    guard let configUpdate = configUpdate, error == nil else {
-                        print("Error listening for config updates: \(String(describing: error))")
-                        return
-                    }
-                    
-                    print("Remote Config updated keys: \(configUpdate.updatedKeys)")
-                    
-                    // Activate the new config
-                    remoteConfig.activate { _, error in
-                        if let error = error {
-                            print("Error activating config: \(error.localizedDescription)")
+            configUpdates: {
+                AsyncStream { continuation in
+                    let listener = remoteConfig.addOnConfigUpdateListener { configUpdate, error in
+                        guard let configUpdate = configUpdate, error == nil else {
+                            print("Error listening for config updates: \(String(describing: error))")
                             return
                         }
                         
-                        // Call the update handler with the updated keys
-                        Task {
-                            await onUpdate(Array(configUpdate.updatedKeys))
+                        print("Remote Config updated keys: \(configUpdate.updatedKeys)")
+                        
+                        // Activate the new config
+                        remoteConfig.activate { _, error in
+                            if let error = error {
+                                print("Error activating config: \(error.localizedDescription)")
+                                return
+                            }
+                            
+                            // Emit the updated keys to the stream
+                            continuation.yield(Array(configUpdate.updatedKeys))
                         }
                     }
-                }
-                
-                Task {
-                    await listenerManager.setListener(listener)
-                }
-            },
-            stopListeningForUpdates: {
-                Task {
-                    await listenerManager.removeListener()
+                    
+                    // Store the listener and handle cancellation
+                    Task {
+                        await listenerManager.setListener(listener)
+                    }
+                    
+                    continuation.onTermination = { @Sendable _ in
+                        Task {
+                            await listenerManager.removeListener()
+                        }
+                    }
                 }
             },
             setDefaultsFromPlist: { fileName in
