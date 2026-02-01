@@ -18,8 +18,7 @@ extension StorageClient: DependencyKey {
     public static var liveValue: StorageClient {
         StorageClient(upload: { image in
             let storageRef = Self.storage.reference().child("user_images/\(UUID()).jpg")
-            let resizedImage = image.aspectFittedToHeight(200)
-            let data = resizedImage.jpegData(compressionQuality: 0.5)
+            let data = image.jpegData(compressionQuality: 0.75)
             
             let metadata = StorageMetadata()
             metadata.contentType = "image/jpg"

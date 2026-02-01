@@ -10,6 +10,7 @@ import FirebaseAnalytics
 
 public struct AnalyticsClient {
     public var setUserId: @Sendable (String?) -> Void
+    public var setUserProperty: @Sendable (String, String) -> Void
 }
 
 extension AnalyticsClient: DependencyKey, Sendable {
@@ -17,6 +18,9 @@ extension AnalyticsClient: DependencyKey, Sendable {
         AnalyticsClient(
             setUserId: { userId in
                 Analytics.setUserID(userId)
+            },
+            setUserProperty: { name, value in
+                Analytics.setUserProperty(value, forName: name)
             }
         )
     }
