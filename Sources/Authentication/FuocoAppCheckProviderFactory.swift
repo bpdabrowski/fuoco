@@ -11,7 +11,10 @@ import FirebaseCore
 
 public class FuocoAppCheckProviderFactory: NSObject, AppCheckProviderFactory {
     public func createProvider(with app: FirebaseApp) -> AppCheckProvider? {
-        let providerFactory = AppAttestProvider(app: app)
-        return providerFactory
+        #if targetEnvironment(simulator)
+        return AppCheckDebugProvider(app: app)
+        #else
+        return AppAttestProvider(app: app)
+        #endif
     }
 }

@@ -8,11 +8,17 @@
 @preconcurrency import Firebase
 import Dependencies
 
+public struct FirestoreDocumentChange<T: FirestoreIdentifiable & Sendable>: Sendable {
+    public let document: T
+    public let changeType: DocumentChangeType
+}
+
 public protocol FirestoreServiceProtocol {
     func request<T>(_ endpoint: FirestoreEndpoint) async throws -> T where T: FirestoreIdentifiable
     func request<T>(_ endpoint: FirestoreEndpoint, lastQuerySnapshot: @escaping (QuerySnapshot) -> Void) async throws -> [T] where T: FirestoreIdentifiable
     func request(_ endpoint: FirestoreEndpoint) async throws -> Void
     func listener<T>(_ endpoint: FirestoreEndpoint, changeType: [DocumentChangeType]) -> AsyncThrowingStream<[T], Error> where T: FirestoreIdentifiable
+    func listener<T>(_ endpoint: FirestoreEndpoint, changeTypes: [DocumentChangeType]) -> AsyncThrowingStream<[FirestoreDocumentChange<T>], Error> where T: FirestoreIdentifiable & Sendable
     func listener<T>(_ endpoint: FirestoreEndpoint) -> AsyncThrowingStream<T, Error> where T: FirestoreIdentifiable & Sendable
 }
 
@@ -59,6 +65,48 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
             
             continuation.onTermination = { @Sendable _ in
                 print("🔴 [FirestoreService] Array listener terminated/deallocated for path: \(ref)")
+                listener.remove()
+            }
+        }
+    }
+
+    // FIXME: We should migrate all consumers of listener to this function.
+    public func listener<T>(
+        _ endpoint: any FirestoreEndpoint,
+        changeTypes: [DocumentChangeType]
+    ) -> AsyncThrowingStream<[FirestoreDocumentChange<T>], any Error> where T: FirestoreIdentifiable & Sendable {
+        AsyncThrowingStream { continuation in
+            guard let ref = endpoint.path as? Query else {
+                continuation.finish(throwing: FirestoreServiceError.documentNotFound)
+                return
+            }
+
+            print("🟢 [FirestoreService] Typed-change listener started for path: \(ref)")
+
+            let listener = ref.addSnapshotListener { querySnapshot, error in
+                if let error {
+                    continuation.finish(throwing: error)
+                } else {
+                    let changes = querySnapshot?.documentChanges
+                        .filter { changeTypes.contains($0.type) }
+                        .compactMap { change -> FirestoreDocumentChange<T>? in
+                            do {
+                                let document = try FirestoreParser.parse(
+                                    change.document.data(),
+                                    type: T.self
+                                )
+                                return FirestoreDocumentChange(document: document, changeType: change.type)
+                            } catch {
+                                return nil
+                            }
+                        } ?? []
+
+                    continuation.yield(changes)
+                }
+            }
+
+            continuation.onTermination = { @Sendable _ in
+                print("🔴 [FirestoreService] Typed-change listener terminated/deallocated for path: \(ref)")
                 listener.remove()
             }
         }
