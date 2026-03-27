@@ -152,7 +152,7 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
             throw FirestoreServiceError.invalidRequest
         case .post(var model):
             model.id = ref.documentID
-            try await ref.setData(model.asDictionary())
+            try await ref.setData(model.asDictionary(), merge: true)
         case .put(let dict):
             // Temporary delay to debounce firestore updates.
             try await Task.sleep(for: .milliseconds(750))
