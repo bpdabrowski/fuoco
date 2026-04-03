@@ -25,7 +25,7 @@ public struct UploadProgress: Sendable {
 public struct StorageClient: Sendable {
     static let storage = Storage.storage()
     public var upload: @Sendable (_ image: UIImage) async -> URL?
-    public var uploadVideo: @Sendable (_ videoURL: URL, _ onProgress: @Sendable @escaping (UploadProgress) -> Void) async -> URL?
+    public var uploadVideo: @Sendable (_ videoURL: URL, _ onProcessingComplete: @Sendable @escaping () -> Void, _ onProcessingProgress: @Sendable @escaping (Double) -> Void, _ onProgress: @Sendable @escaping (UploadProgress) -> Void) async -> URL?
 }
 
 extension StorageClient: DependencyKey {
@@ -49,9 +49,10 @@ extension StorageClient: DependencyKey {
                     return nil
                 }
             },
-            uploadVideo: { videoURL, onProgress in
+            uploadVideo: { videoURL, onProcessingComplete, onProcessingProgress, onProgress in
                 do {
-                    let compressedURL = try await compressAndCropVideo(videoURL)
+                    let compressedURL = try await compressAndCropVideo(videoURL, onProgress: onProcessingProgress)
+                    onProcessingComplete()
                     let storageRef = Self.storage.reference().child("user_videos/\(UUID()).mp4")
                     
                     let metadata = StorageMetadata()
@@ -107,7 +108,7 @@ extension DependencyValues: Sendable {
 
 
 
-private func compressAndCropVideo(_ inputURL: URL) async throws -> URL {
+private func compressAndCropVideo(_ inputURL: URL, onProgress: @escaping (Double) -> Void) async throws -> URL {
     let asset = AVURLAsset(url: inputURL)
     let duration = try await asset.load(.duration)
 
@@ -144,7 +145,12 @@ private func compressAndCropVideo(_ inputURL: URL) async throws -> URL {
         }
     }
 
-    let renderSize = CGSize(width: 1080, height: 1920)
+    // Cap at 720p portrait; don't upscale if the source is already smaller.
+    let scaleFactor = min(720 / cropWidth, 1280 / cropHeight, 1.0)
+    let renderWidth = (cropWidth * scaleFactor / 2).rounded(.down) * 2
+    let renderHeight = (cropHeight * scaleFactor / 2).rounded(.down) * 2
+    let renderSize = CGSize(width: renderWidth, height: renderHeight)
+
     let scaleX = renderSize.width / cropWidth
     let scaleY = renderSize.height / cropHeight
 
@@ -165,25 +171,110 @@ private func compressAndCropVideo(_ inputURL: URL) async throws -> URL {
     videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
     videoComposition.renderSize = renderSize
 
-    guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetMediumQuality) else {
-        throw NSError(domain: "StorageClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
-    }
+    // Reader: decompress source frames applying the crop/orientation composition.
+    let reader = try AVAssetReader(asset: asset)
+    let readerVideoOutput = AVAssetReaderVideoCompositionOutput(
+        videoTracks: [videoTrack],
+        videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)]
+    )
+    readerVideoOutput.videoComposition = videoComposition
+    readerVideoOutput.alwaysCopiesSampleData = false
+    reader.add(readerVideoOutput)
 
+    // Writer: encode with HEVC at 2 Mbps (~5 MB per 20 seconds).
     let outputURL = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString)
         .appendingPathExtension("mp4")
 
-    exportSession.outputURL = outputURL
-    exportSession.outputFileType = .mp4
-    exportSession.videoComposition = videoComposition
+    let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+    let writerVideoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
+        AVVideoCodecKey: AVVideoCodecType.hevc,
+        AVVideoWidthKey: Int(renderSize.width),
+        AVVideoHeightKey: Int(renderSize.height),
+        AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 2_000_000]
+    ])
+    writerVideoInput.expectsMediaDataInRealTime = false
+    writer.add(writerVideoInput)
 
-    await exportSession.export()
+    // Pass through audio re-encoded as AAC 128kbps.
+    var writerAudioInput: AVAssetWriterInput?
+    var readerAudioOutput: AVAssetReaderTrackOutput?
+    if let audioTrack = try await asset.loadTracks(withMediaType: .audio).first {
+        let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM)
+        ])
+        reader.add(audioOutput)
+        readerAudioOutput = audioOutput
 
-    guard exportSession.status == .completed else {
-        throw exportSession.error ?? NSError(domain: "StorageClient", code: -2, userInfo: [NSLocalizedDescriptionKey: "Video compression failed"])
+        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderBitRateKey: 128_000
+        ])
+        audioInput.expectsMediaDataInRealTime = false
+        writer.add(audioInput)
+        writerAudioInput = audioInput
     }
 
-    return outputURL
+    return try await withCheckedThrowingContinuation { continuation in
+        reader.startReading()
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+
+        let finishGroup = DispatchGroup()
+
+        let totalSeconds = duration.seconds
+        var lastReportedProgress: Double = 0
+
+        finishGroup.enter()
+        writerVideoInput.requestMediaDataWhenReady(on: DispatchQueue(label: "com.fuoco.video.write")) {
+            while writerVideoInput.isReadyForMoreMediaData {
+                if let sample = readerVideoOutput.copyNextSampleBuffer() {
+                    let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+                    let progress = min(pts / totalSeconds, 1.0)
+                    if progress - lastReportedProgress >= 0.01 {
+                        lastReportedProgress = progress
+                        onProgress(progress)
+                    }
+                    writerVideoInput.append(sample)
+                } else {
+                    writerVideoInput.markAsFinished()
+                    finishGroup.leave()
+                    return
+                }
+            }
+        }
+
+        if let writerAudioInput, let readerAudioOutput {
+            finishGroup.enter()
+            writerAudioInput.requestMediaDataWhenReady(on: DispatchQueue(label: "com.fuoco.audio.write")) {
+                while writerAudioInput.isReadyForMoreMediaData {
+                    if let sample = readerAudioOutput.copyNextSampleBuffer() {
+                        writerAudioInput.append(sample)
+                    } else {
+                        writerAudioInput.markAsFinished()
+                        finishGroup.leave()
+                        return
+                    }
+                }
+            }
+        }
+
+        finishGroup.notify(queue: .global()) {
+            writer.finishWriting {
+                if writer.status == .completed {
+                    continuation.resume(returning: outputURL)
+                } else {
+                    continuation.resume(throwing: writer.error ?? NSError(
+                        domain: "StorageClient",
+                        code: -2,
+                        userInfo: [NSLocalizedDescriptionKey: "Video compression failed"]
+                    ))
+                }
+            }
+        }
+    }
 }
 
 extension UIImage {
