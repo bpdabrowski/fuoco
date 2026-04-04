@@ -44,7 +44,9 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
                         .compactMap { change -> T? in
                             do {
                                 var documentData = change.document.data()
-                                documentData["id"] = change.document.documentID
+                                if documentData["id"] == nil {
+                                    documentData["id"] = change.document.documentID
+                                }
                                 let data = try FirestoreParser.parse(
                                     documentData,
                                     type: T.self
@@ -80,7 +82,9 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
                     continuation.finish(throwing: error)
                 } else if var documentData = documentSnapshot?.data() {
                     let parsedData: T
-                    documentData["id"] = documentSnapshot?.documentID ?? ""
+                    if documentData["id"] == nil {
+                        documentData["id"] = documentSnapshot?.documentID ?? ""
+                    }
                     do {
                         parsedData = try FirestoreParser.parse(documentData, type: T.self)
                     } catch {
@@ -112,8 +116,11 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
                 throw FirestoreServiceError.parseError
             }
 
-            // Inject the Firestore document ID so models can always decode `id`
-            documentData["id"] = documentSnapshot.documentID
+            // Inject the Firestore document ID only if the data doesn't already have one.
+            // Some models (e.g. Bubble) store a reference ID in `id` that differs from the doc ID.
+            if documentData["id"] == nil {
+                documentData["id"] = documentSnapshot.documentID
+            }
             let singleResponse = try FirestoreParser.parse(documentData, type: T.self)
             return singleResponse
         default:
@@ -132,7 +139,9 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
             var response: [T] = []
             for document in querySnapshot.documents {
                 var documentData = document.data()
-                documentData["id"] = document.documentID
+                if documentData["id"] == nil {
+                    documentData["id"] = document.documentID
+                }
                 let data = try FirestoreParser.parse(documentData, type: T.self)
                 response.append(data)
             }
