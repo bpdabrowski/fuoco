@@ -39,13 +39,12 @@ public final class FirestoreService: FirestoreServiceProtocol, Sendable {
                 if let error {
                     continuation.finish(throwing: error)
                 } else {
-                    let documents = querySnapshot?.documentChanges
-                        .filter { changeType.contains($0.type) }
-                        .compactMap { change -> T? in
+                    let documents = querySnapshot?.documents
+                        .compactMap { document -> T? in
                             do {
-                                var documentData = change.document.data()
+                                var documentData = document.data()
                                 if documentData["id"] == nil {
-                                    documentData["id"] = change.document.documentID
+                                    documentData["id"] = document.documentID
                                 }
                                 let data = try FirestoreParser.parse(
                                     documentData,
